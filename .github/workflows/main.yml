@@ -11,10 +11,32 @@ env:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        features: ["", "parse", "stringify", "parse stringify"]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
     - name: Build
-      run: cargo build --verbose
+      run: cargo build --verbose --features "${{ matrix.features }}"
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --features "${{ matrix.features }}"
+
+  readme:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - run: cargo install cargo-readme
+    - run: cargo readme -t .README.tpl > README.md
+    - run: |
+        git diff --exit-code || {
+            echo
+            echo "============================================================"
+            echo
+            echo "README.md is not up to date! Run"
+            echo
+            echo "    $ cargo readme -t .README.tpl > README.md"
+            echo
+            echo "to update it."
+            exit 1
+        }
