@@ -1,5 +1,10 @@
 //! A library for manipulating [Souper] IR.
 //!
+//! [![](https://docs.rs/souper-ir/badge.svg)](https://docs.rs/souper-ir/)
+//! [![](https://img.shields.io/crates/v/souper-ir.svg)](https://crates.io/crates/souper-ir)
+//! [![](https://img.shields.io/crates/d/souper-ir.svg)](https://crates.io/crates/souper-ir)
+//! ![CI](https://github.com/fitzgen/souper-ir/workflows/CI/badge.svg)
+//!
 //! This crate provides AST types for parsing or generating Souper IR. It is a
 //! suitable building block either for writing a custom LHS extractor, or for
 //! translating learned optimizations into your own peephole optimizations pass.
