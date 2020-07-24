@@ -35,24 +35,15 @@ fn main() -> anyhow::Result<()> {
                 })
                 .collect::<String>();
 
-            // FIXME: https://github.com/google/souper/pull/784
-            let ignore = if entry.file_name() == "pruning.opt" {
-                "#[ignore]"
-            } else {
-                ""
-            };
-
             writeln!(
                 out,
                 "\
 #[test]
 #[allow(non_snake_case)]
-{}
 fn test_{}() {{
     crate::assert_parse_file(std::path::Path::new(\"{}\"));
 }}
 ",
-                ignore,
                 test_name,
                 entry.path().display()
             )
