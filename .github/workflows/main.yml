@@ -29,6 +29,15 @@ jobs:
     - name: Run tests
       run: cargo test --verbose --features "${{ matrix.features }}"
 
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        submodules: true
+    - run: cargo build --verbose -p souper-ir-tests
+    - run: cargo test --verbose -p souper-ir-tests
+
   readme:
     runs-on: ubuntu-latest
     steps:
