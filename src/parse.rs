@@ -285,7 +285,7 @@ impl ParseError {
             current_offset += line.len() + 1;
 
             if current_offset >= offset {
-                return Some((line_num, line.len() - (current_offset - offset)));
+                return Some((line_num, line.len().saturating_sub(current_offset - offset)));
             }
         }
 
@@ -546,10 +546,14 @@ impl<'a> Lexer<'a> {
                     )))
                 }
             }
-            (start, c) if c == '-' || c.is_numeric() => {
+            (start, c) if c == '-' || ('0' <= c && c <= '9') => {
                 self.chars.next().unwrap();
                 let mut end = start + 1;
-                while self.chars.peek().map_or(false, |&(_, c)| c.is_numeric()) {
+                while self
+                    .chars
+                    .peek()
+                    .map_or(false, |&(_, c)| '0' <= c && c <= '9')
+                {
                     let (i, _) = self.chars.next().unwrap();
                     end = i + 1;
                 }
@@ -702,6 +706,12 @@ impl<'a> Parser<'a> {
             _ => self.error("expected '['"),
         }
     }
+
+    fn take_statements(&mut self) -> Arena<ast::Statement> {
+        self.values.clear();
+        self.blocks.clear();
+        mem::replace(&mut self.statements, Arena::new())
+    }
 }
 
 /// TODO
@@ -753,9 +763,9 @@ impl Parse for ast::Replacement {
             while ast::Statement::peek(parser)? {
                 parse_statement(parser)?;
             }
-            let statements = mem::replace(&mut parser.statements, Arena::new());
             parser.ident("result")?;
             let rhs = ast::Operand::parse(parser)?;
+            let statements = parser.take_statements();
             return Ok(ast::Replacement::LhsRhs {
                 statements,
                 lhs,
@@ -763,8 +773,8 @@ impl Parse for ast::Replacement {
             });
         }
 
-        let statements = mem::replace(&mut parser.statements, Arena::new());
         let cand = ast::Cand::parse(parser)?;
+        let statements = parser.take_statements();
         Ok(ast::Replacement::Cand { statements, cand })
     }
 }
@@ -774,8 +784,8 @@ impl Parse for ast::LeftHandSide {
         while ast::Statement::peek(parser)? {
             parse_statement(parser)?;
         }
-        let statements = mem::replace(&mut parser.statements, Arena::new());
         let infer = ast::Infer::parse(parser)?;
+        let statements = parser.take_statements();
         Ok(ast::LeftHandSide { statements, infer })
     }
 }
@@ -785,9 +795,9 @@ impl Parse for ast::RightHandSide {
         while ast::Statement::peek(parser)? {
             parse_statement(parser)?;
         }
-        let statements = mem::replace(&mut parser.statements, Arena::new());
         parser.ident("result")?;
         let result = ast::Operand::parse(parser)?;
+        let statements = parser.take_statements();
         Ok(ast::RightHandSide { statements, result })
     }
 }
