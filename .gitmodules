@@ -1,0 +1,3 @@
+[submodule "tests/souper"]
+	path = crates/tests/souper
+	url = https://github.com/google/souper.git

@@ -114,6 +114,9 @@ pub struct Assignment {
 
     /// The value being bound in this assignment.
     pub value: AssignmentRhs,
+
+    /// Attributes describing data-flow facts known about this value.
+    pub attributes: Vec<Attribute>,
 }
 
 /// Any value that can be assigned to a name.
@@ -123,7 +126,7 @@ pub enum AssignmentRhs {
     Constant(Constant),
 
     /// An input variable.
-    Var(Var),
+    Var,
 
     /// A basic block.
     Block(Block),
@@ -132,10 +135,10 @@ pub enum AssignmentRhs {
     Phi(Phi),
 
     /// A hole reserved for an as-of-yet-unknown instruction.
-    ReservedInst(ReservedInst),
+    ReservedInst,
 
     /// A hole reserved for an as-of-yet-unknown constant.
-    ReservedConst(ReservedConst),
+    ReservedConst,
 
     /// An instruction and its operands.
     Instruction(Instruction),
@@ -184,20 +187,6 @@ pub struct Phi {
 
     /// The potential values for this phi node.
     pub values: Vec<Operand>,
-}
-
-/// A hole reserved for an as-of-yet-unknown instruction.
-#[derive(Clone, Debug)]
-pub struct ReservedInst {
-    /// Attributes describing data-flow facts about this instruction, if any.
-    pub attributes: Vec<Attribute>,
-}
-
-/// A hole reserved for an as-of-yet-unknown constant.
-#[derive(Clone, Debug)]
-pub struct ReservedConst {
-    /// Attributes describing data-flow facts about this constant, if any.
-    pub attributes: Vec<Attribute>,
 }
 
 macro_rules! define_instructions {
@@ -504,6 +493,10 @@ pub enum Attribute {
     /// The value is known to be non-zero.
     NonZero,
 
+    /// The value is used by other expressions, not just this replacement's
+    /// expression DAG.
+    HasExternalUses,
+
     /// It is known that there are `n` sign bits in this value.
     SignBits(u8),
 
@@ -562,5 +555,5 @@ pub struct Constant {
 #[derive(Copy, Clone, Debug)]
 pub struct Type {
     /// The bit width of this integer type.
-    pub width: u8,
+    pub width: u16,
 }

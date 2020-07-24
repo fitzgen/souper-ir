@@ -81,7 +81,7 @@ https://github.com/google/souper/issues/782.
                    | 'phi' <valname> (',' <operand>)*
                    | 'reservedinst' <attribute>*
                    | 'reservedconst' <attribute>*
-                   | <instruction>
+                   | <instruction> <attribute>*
 
 <instruction> ::= 'add' <operand> ',' <operand>
                 | 'addnsw' <operand> ',' <operand>
@@ -158,6 +158,7 @@ https://github.com/google/souper/issues/782.
                     | 'negative'
                     | 'nonNegative'
                     | 'nonZero'
+                    | 'hasExternalUses'
                     | 'signBits' '=' <int>
                     | 'range' '=' '[' <int> ',' <int> ')'
 
@@ -285,7 +286,7 @@ impl ParseError {
             current_offset += line.len() + 1;
 
             if current_offset >= offset {
-                return Some((line_num, line.len() - (current_offset - offset)));
+                return Some((line_num, line.len().saturating_sub(current_offset - offset)));
             }
         }
 
@@ -418,7 +419,7 @@ pub(crate) enum Token<'a> {
 
 fn is_ident_char(c: char) -> bool {
     match c {
-        '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' => true,
+        '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' | '.' => true,
         _ => false,
     }
 }
@@ -546,27 +547,28 @@ impl<'a> Lexer<'a> {
                     )))
                 }
             }
-            (start, c) if c == '-' || c.is_numeric() => {
+            (start, c) if c == '-' || ('0' <= c && c <= '9') => {
                 self.chars.next().unwrap();
                 let mut end = start + 1;
-                while self.chars.peek().map_or(false, |&(_, c)| c.is_numeric()) {
+                while self
+                    .chars
+                    .peek()
+                    .map_or(false, |&(_, c)| '0' <= c && c <= '9')
+                {
                     let (i, _) = self.chars.next().unwrap();
                     end = i + 1;
                 }
-                match i128::from_str(&self.source[start..end]) {
-                    Ok(_) => Ok(Some((start, Token::Int(&self.source[start..end])))),
-                    Err(e) => Err(ParseError::new(
-                        start,
-                        format!("failed to parse int: {}", e),
-                    )),
-                }
+                Ok(Some((start, Token::Int(&self.source[start..end]))))
             }
             (start, c) => Err(ParseError::new(start, format!("unexpected '{}'", c))),
         }
     }
 }
 
-/// TODO
+/// A Souper text parser buffer.
+///
+/// Manages lexing and lookahead, as well as some parsed values and binding
+/// scopes.
 #[derive(Debug)]
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -588,7 +590,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    /// TODO
+    /// Construct a new parser for the given Souper source text.
     pub fn new(source: &'a str) -> Self {
         Parser {
             lexer: Lexer::new(source),
@@ -656,7 +658,10 @@ impl<'a> Parser<'a> {
 
     pub(crate) fn int(&mut self) -> Result<i128> {
         match self.token()? {
-            Token::Int(x) => Ok(i128::from_str(x).unwrap()),
+            Token::Int(x) => match i128::from_str(x) {
+                Ok(x) => Ok(x),
+                Err(e) => self.error(e.to_string()),
+            },
             _ => self.error("expected an integer literal"),
         }
     }
@@ -702,17 +707,23 @@ impl<'a> Parser<'a> {
             _ => self.error("expected '['"),
         }
     }
+
+    fn take_statements(&mut self) -> Arena<ast::Statement> {
+        self.values.clear();
+        self.blocks.clear();
+        mem::replace(&mut self.statements, Arena::new())
+    }
 }
 
-/// TODO
+/// A trait for AST nodes that can be parsed from text.
 pub trait Parse: Sized {
-    /// TODO
+    /// Parse a `Self` from the given buffer.
     fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self>;
 }
 
-/// TODO
+/// A trait for whether an AST node looks like it comes next.
 pub trait Peek {
-    /// TODO
+    /// Does it look like we can parse a `Self` from the given buffer?
     fn peek<'a>(parser: &mut Parser<'a>) -> Result<bool>;
 }
 
@@ -753,9 +764,9 @@ impl Parse for ast::Replacement {
             while ast::Statement::peek(parser)? {
                 parse_statement(parser)?;
             }
-            let statements = mem::replace(&mut parser.statements, Arena::new());
             parser.ident("result")?;
             let rhs = ast::Operand::parse(parser)?;
+            let statements = parser.take_statements();
             return Ok(ast::Replacement::LhsRhs {
                 statements,
                 lhs,
@@ -763,8 +774,8 @@ impl Parse for ast::Replacement {
             });
         }
 
-        let statements = mem::replace(&mut parser.statements, Arena::new());
         let cand = ast::Cand::parse(parser)?;
+        let statements = parser.take_statements();
         Ok(ast::Replacement::Cand { statements, cand })
     }
 }
@@ -774,8 +785,8 @@ impl Parse for ast::LeftHandSide {
         while ast::Statement::peek(parser)? {
             parse_statement(parser)?;
         }
-        let statements = mem::replace(&mut parser.statements, Arena::new());
         let infer = ast::Infer::parse(parser)?;
+        let statements = parser.take_statements();
         Ok(ast::LeftHandSide { statements, infer })
     }
 }
@@ -785,9 +796,9 @@ impl Parse for ast::RightHandSide {
         while ast::Statement::peek(parser)? {
             parse_statement(parser)?;
         }
-        let statements = mem::replace(&mut parser.statements, Arena::new());
         parser.ident("result")?;
         let result = ast::Operand::parse(parser)?;
+        let statements = parser.take_statements();
         Ok(ast::RightHandSide { statements, result })
     }
 }
@@ -914,10 +925,12 @@ impl Parse for ast::Assignment {
         };
         parser.eq()?;
         let value = ast::AssignmentRhs::parse(parser)?;
+        let attributes = Vec::<ast::Attribute>::parse(parser)?;
         Ok(ast::Assignment {
             name,
             r#type,
             value,
+            attributes,
         })
     }
 }
@@ -929,9 +942,9 @@ impl Parse for ast::AssignmentRhs {
             return Ok(ast::AssignmentRhs::Constant(constant));
         }
 
-        if ast::Var::peek(parser)? {
-            let var = ast::Var::parse(parser)?;
-            return Ok(ast::AssignmentRhs::Var(var));
+        if parser.lookahead_ident("var")? {
+            parser.ident("var")?;
+            return Ok(ast::AssignmentRhs::Var);
         }
 
         if ast::Block::peek(parser)? {
@@ -944,14 +957,14 @@ impl Parse for ast::AssignmentRhs {
             return Ok(ast::AssignmentRhs::Phi(phi));
         }
 
-        if ast::ReservedInst::peek(parser)? {
-            let reserved_inst = ast::ReservedInst::parse(parser)?;
-            return Ok(ast::AssignmentRhs::ReservedInst(reserved_inst));
+        if parser.lookahead_ident("reservedinst")? {
+            parser.ident("reservedinst")?;
+            return Ok(ast::AssignmentRhs::ReservedInst);
         }
 
-        if ast::ReservedConst::peek(parser)? {
-            let reserved_const = ast::ReservedConst::parse(parser)?;
-            return Ok(ast::AssignmentRhs::ReservedConst(reserved_const));
+        if parser.lookahead_ident("reservedconst")? {
+            parser.ident("reservedconst")?;
+            return Ok(ast::AssignmentRhs::ReservedConst);
         }
 
         if ast::Instruction::peek(parser)? {
@@ -1008,7 +1021,7 @@ impl Parse for ast::BlockPc {
 impl Parse for ast::Type {
     fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self> {
         match parser.token()? {
-            Token::Ident(ident) if ident.starts_with('i') => match u8::from_str(&ident[1..]) {
+            Token::Ident(ident) if ident.starts_with('i') => match u16::from_str(&ident[1..]) {
                 Ok(width) if width > 0 => return Ok(ast::Type { width }),
                 _ => {}
             },
@@ -1035,20 +1048,6 @@ impl Parse for ast::Constant {
             None
         };
         Ok(ast::Constant { value, r#type })
-    }
-}
-
-impl Peek for ast::Var {
-    fn peek<'a>(parser: &mut Parser<'a>) -> Result<bool> {
-        parser.lookahead_ident("var")
-    }
-}
-
-impl Parse for ast::Var {
-    fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self> {
-        parser.ident("var")?;
-        let attributes = Vec::<ast::Attribute>::parse(parser)?;
-        Ok(ast::Var { attributes })
     }
 }
 
@@ -1097,34 +1096,6 @@ impl Parse for ast::Phi {
     }
 }
 
-impl Peek for ast::ReservedInst {
-    fn peek<'a>(parser: &mut Parser<'a>) -> Result<bool> {
-        parser.lookahead_ident("reservedinst")
-    }
-}
-
-impl Parse for ast::ReservedInst {
-    fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self> {
-        parser.ident("reservedinst")?;
-        let attributes = Vec::<ast::Attribute>::parse(parser)?;
-        Ok(ast::ReservedInst { attributes })
-    }
-}
-
-impl Peek for ast::ReservedConst {
-    fn peek<'a>(parser: &mut Parser<'a>) -> Result<bool> {
-        parser.lookahead_ident("reservedconst")
-    }
-}
-
-impl Parse for ast::ReservedConst {
-    fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self> {
-        parser.ident("reservedconst")?;
-        let attributes = Vec::<ast::Attribute>::parse(parser)?;
-        Ok(ast::ReservedConst { attributes })
-    }
-}
-
 impl Peek for ast::Attribute {
     fn peek<'a>(parser: &mut Parser<'a>) -> Result<bool> {
         Ok(parser.lookahead()? == Some(Token::OpenParen))
@@ -1163,6 +1134,10 @@ impl Parse for ast::Attribute {
             Token::Ident("nonZero") => {
                 parser.close_paren()?;
                 Ok(ast::Attribute::NonZero)
+            }
+            Token::Ident("hasExternalUses") => {
+                parser.close_paren()?;
+                Ok(ast::Attribute::HasExternalUses)
             }
             Token::Ident("signBits") => {
                 parser.eq()?;

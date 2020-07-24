@@ -17,3 +17,6 @@ id-arena = "2.2.1"
 [features]
 parse = []
 stringify = []
+
+[workspace]
+members = ["crates/tests"]
