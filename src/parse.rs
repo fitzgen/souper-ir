@@ -570,7 +570,10 @@ impl<'a> Lexer<'a> {
     }
 }
 
-/// TODO
+/// A Souper text parser buffer.
+///
+/// Manages lexing and lookahead, as well as some parsed values and binding
+/// scopes.
 #[derive(Debug)]
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
@@ -592,7 +595,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    /// TODO
+    /// Construct a new parser for the given Souper source text.
     pub fn new(source: &'a str) -> Self {
         Parser {
             lexer: Lexer::new(source),
@@ -714,15 +717,15 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// TODO
+/// A trait for AST nodes that can be parsed from text.
 pub trait Parse: Sized {
-    /// TODO
+    /// Parse a `Self` from the given buffer.
     fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self>;
 }
 
-/// TODO
+/// A trait for whether an AST node looks like it comes next.
 pub trait Peek {
-    /// TODO
+    /// Does it look like we can parse a `Self` from the given buffer?
     fn peek<'a>(parser: &mut Parser<'a>) -> Result<bool>;
 }
 
