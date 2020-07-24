@@ -19,4 +19,7 @@ parse = []
 stringify = []
 
 [workspace]
-members = ["crates/tests"]
+members = [
+    "./crates/tests",
+    "./fuzz",
+]
