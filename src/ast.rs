@@ -1,6 +1,6 @@
 //! Abstract syntax tree type definitions.
 
-use id_arena::{Arena, Id};
+pub use id_arena::{Arena, Id};
 
 /// An identifier for a value defined by an assignment.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -10,12 +10,33 @@ pub struct ValueId(
     pub(crate) Id<Statement>,
 );
 
+impl From<ValueId> for Id<Statement> {
+    #[inline]
+    fn from(id: ValueId) -> Self {
+        id.0
+    }
+}
+
 /// An identifier for a defined block.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(
     /// Always points to an assignment where the RHS is `AssignmentRhs::Block`.
     pub(crate) ValueId,
 );
+
+impl From<BlockId> for ValueId {
+    #[inline]
+    fn from(id: BlockId) -> Self {
+        id.0
+    }
+}
+
+impl From<BlockId> for Id<Statement> {
+    #[inline]
+    fn from(id: BlockId) -> Self {
+        (id.0).0
+    }
+}
 
 /// A complete optimization that replaces a left-hand side with a right-hand
 /// side.
@@ -46,6 +67,131 @@ pub enum Replacement {
     },
 }
 
+impl Replacement {
+    /// Get the assignment that defined the given value.
+    ///
+    /// # Panics
+    ///
+    /// May panic or produce incorrect results if given a `ValueId` from another
+    /// `Replacement`, `LeftHandSide`, or `RightHandSide`'s arena.
+    pub fn assignment(&self, id: ValueId) -> &Assignment {
+        match self {
+            Replacement::LhsRhs { statements, .. } | Replacement::Cand { statements, .. } => {
+                match &statements[id.into()] {
+                    Statement::Assignment(a) => a,
+                    _ => panic!("use of an `id` that is not from this `Replacement`'s arena"),
+                }
+            }
+        }
+    }
+}
+
+/// A builder for a [`Replacement`][crate::ast::Replacement].
+#[derive(Clone, Debug, Default)]
+pub struct ReplacementBuilder {
+    statements: Arena<Statement>,
+}
+
+impl ReplacementBuilder {
+    /// Create a new assignment statement.
+    ///
+    /// Returns the value defined by the assignment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn assignment(
+        &mut self,
+        name: Option<String>,
+        r#type: Option<Type>,
+        value: impl Into<AssignmentRhs>,
+        attributes: Vec<Attribute>,
+    ) -> ValueId {
+        let name = name.unwrap_or_else(|| format!("%{}", self.statements.len()));
+        assert!(name.starts_with('%'));
+        ValueId(
+            self.statements.alloc(
+                Assignment {
+                    name,
+                    r#type,
+                    value: value.into(),
+                    attributes,
+                }
+                .into(),
+            ),
+        )
+    }
+
+    /// Create a new [basic block][crate::ast::Block].
+    ///
+    /// Declare that the block has `predecessors` number of incoming edges in
+    /// the control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn block(&mut self, name: Option<String>, predecessors: u32) -> BlockId {
+        BlockId(self.assignment(name, None, Block { predecessors }, vec![]))
+    }
+
+    /// Create a [path condition][crate::ast::Pc].
+    ///
+    /// Expresses the fact that `x` must equal `y` for the replacement to be
+    /// valid.
+    pub fn pc(&mut self, x: impl Into<Operand>, y: impl Into<Operand>) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(Pc { x, y }.into());
+    }
+
+    /// Create a [block path condition][crate::ast::BlockPc].
+    ///
+    /// Expresses that `x` is equal to `y` on an incoming edge to `block` in the
+    /// control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `predecessor` is greater than or equal to `block`'s number of
+    /// predecessors.
+    pub fn block_pc(
+        &mut self,
+        block: BlockId,
+        predecessor: u32,
+        x: impl Into<Operand>,
+        y: impl Into<Operand>,
+    ) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(
+            BlockPc {
+                block,
+                predecessor,
+                x,
+                y,
+            }
+            .into(),
+        );
+    }
+
+    /// Finish building this replacement by providing the left- and right-hand
+    /// sides.
+    pub fn finish(
+        self,
+        lhs: ValueId,
+        rhs: impl Into<Operand>,
+        attributes: impl IntoIterator<Item = RootAttribute>,
+    ) -> Replacement {
+        Replacement::LhsRhs {
+            statements: self.statements,
+            lhs: Infer {
+                value: lhs,
+                attributes: attributes.into_iter().collect(),
+            },
+            rhs: rhs.into(),
+        }
+    }
+}
+
 /// A candidate rewrite.
 #[derive(Clone, Debug)]
 pub struct Cand {
@@ -68,6 +214,109 @@ pub struct LeftHandSide {
 
     /// The root of this LHS's expression DAG.
     pub infer: Infer,
+}
+
+/// A builder for a [`LeftHandSide`][crate::ast::LeftHandSide].
+#[derive(Clone, Debug, Default)]
+pub struct LeftHandSideBuilder {
+    statements: Arena<Statement>,
+}
+
+impl LeftHandSideBuilder {
+    /// Create a new assignment statement.
+    ///
+    /// Returns the value defined by the assignment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn assignment(
+        &mut self,
+        name: Option<String>,
+        r#type: Option<Type>,
+        value: impl Into<AssignmentRhs>,
+        attributes: Vec<Attribute>,
+    ) -> ValueId {
+        let name = name.unwrap_or_else(|| format!("%{}", self.statements.len()));
+        assert!(name.starts_with('%'));
+        ValueId(
+            self.statements.alloc(
+                Assignment {
+                    name,
+                    r#type,
+                    value: value.into(),
+                    attributes,
+                }
+                .into(),
+            ),
+        )
+    }
+
+    /// Create a new [basic block][crate::ast::Block].
+    ///
+    /// Declare that the block has `predecessors` number of incoming edges in
+    /// the control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn block(&mut self, name: Option<String>, predecessors: u32) -> BlockId {
+        BlockId(self.assignment(name, None, Block { predecessors }, vec![]))
+    }
+
+    /// Create a [path condition][crate::ast::Pc].
+    ///
+    /// Expresses the fact that `x` must equal `y` for the replacement to be
+    /// valid.
+    pub fn pc(&mut self, x: impl Into<Operand>, y: impl Into<Operand>) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(Pc { x, y }.into());
+    }
+
+    /// Create a [block path condition][crate::ast::BlockPc].
+    ///
+    /// Expresses that `x` is equal to `y` on an incoming edge to `block` in the
+    /// control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `predecessor` is greater than or equal to `block`'s number of
+    /// predecessors.
+    pub fn block_pc(
+        &mut self,
+        block: BlockId,
+        predecessor: u32,
+        x: impl Into<Operand>,
+        y: impl Into<Operand>,
+    ) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(
+            BlockPc {
+                block,
+                predecessor,
+                x,
+                y,
+            }
+            .into(),
+        );
+    }
+
+    /// Finish building this `LeftHandSide`.
+    pub fn finish(
+        self,
+        lhs: ValueId,
+        attributes: impl IntoIterator<Item = RootAttribute>,
+    ) -> LeftHandSide {
+        LeftHandSide {
+            statements: self.statements,
+            infer: Infer {
+                value: lhs,
+                attributes: attributes.into_iter().collect(),
+            },
+        }
+    }
 }
 
 /// The root of a left-hand side.
@@ -101,6 +350,24 @@ pub enum Statement {
 
     /// A block path condition statement.
     BlockPc(BlockPc),
+}
+
+impl From<Assignment> for Statement {
+    fn from(a: Assignment) -> Self {
+        Statement::Assignment(a)
+    }
+}
+
+impl From<Pc> for Statement {
+    fn from(pc: Pc) -> Self {
+        Statement::Pc(pc)
+    }
+}
+
+impl From<BlockPc> for Statement {
+    fn from(bpc: BlockPc) -> Self {
+        Statement::BlockPc(bpc)
+    }
 }
 
 /// An assignment, defining a value.
@@ -142,6 +409,30 @@ pub enum AssignmentRhs {
 
     /// An instruction and its operands.
     Instruction(Instruction),
+}
+
+impl From<Constant> for AssignmentRhs {
+    fn from(c: Constant) -> Self {
+        AssignmentRhs::Constant(c)
+    }
+}
+
+impl From<Block> for AssignmentRhs {
+    fn from(b: Block) -> Self {
+        AssignmentRhs::Block(b)
+    }
+}
+
+impl From<Phi> for AssignmentRhs {
+    fn from(p: Phi) -> Self {
+        AssignmentRhs::Phi(p)
+    }
+}
+
+impl From<Instruction> for AssignmentRhs {
+    fn from(i: Instruction) -> Self {
+        AssignmentRhs::Instruction(i)
+    }
 }
 
 /// An input variable.
@@ -243,6 +534,47 @@ macro_rules! define_instructions {
                 }
             }
         }
+
+        #[cfg(feature = "stringify")]
+        impl Instruction {
+            pub(crate) fn value_ids(&self, mut f: impl FnMut(ValueId)) {
+                match self {
+                    $(
+                        Instruction::$inst $( { $( $operand ),* } )? => {
+                            $(
+                                $(
+                                    if let Operand::Value(v) = $operand {
+                                        f(*v);
+                                    }
+                                )*
+                            )?
+                        }
+                    )*
+                }
+            }
+
+            pub(crate) fn operands(&self, mut f: impl FnMut(Operand)) {
+                match self {
+                    $(
+                        Instruction::$inst $( { $( $operand ),* } )? => {
+                            $(
+                                $(
+                                    f(*$operand);
+                                )*
+                            )?
+                        }
+                    )*
+                }
+            }
+
+            pub(crate) fn instruction_name(&self) -> &'static str {
+                match self {
+                    $(
+                        Instruction::$inst $( { $( $operand: _),* } )? => $token,
+                    )*
+                }
+            }
+        }
     };
 }
 
@@ -289,10 +621,12 @@ define_instructions! {
     /// Signed integer division.
     "sdiv" => Sdiv(a, b);
 
-    /// TODO
+    /// Unsigned division where `a` must be exactly divisible by `b`. If `a` is
+    /// not exactly divisible by `b`, then the result is undefined behavior.
     "udivexact" => UdivExact(a, b);
 
-    /// TODO
+    /// Signed division where `a` must be exactly divisible by `b`. If `a` is
+    /// not exactly divisible by `b`, then the result is undefined behavior.
     "sdivexact" => SdivExact(a, b);
 
     /// Unsigned integer remainder.
@@ -329,13 +663,15 @@ define_instructions! {
     /// behavior if `b` is greater than or equal to `bitwidth(a)`.
     "lshr" => Lshr(a, b);
 
-    /// TODO
+    /// Logical bit shift right (fills left `b` bits with zero) where it is
+    /// undefined behavior if any bits shifted out are non-zero.
     "lshrexact" => LshrExact(a, b);
 
     /// Arithmetic bit shift right (sign extends the left `b` bits).
     "ashr" => Ashr(a, b);
 
-    /// TODO
+    /// Arithmetic bit shift right (fills left `b` bits with zero) where it is
+    /// undefined behavior if any bits shifted out are non-zero.
     "ashrexact" => AshrExact(a, b);
 
     /// If `a` is 1, then evaluates to `b`, otherwise evaluates to `c`.
@@ -446,6 +782,18 @@ pub enum Operand {
 
     /// A literal constant value.
     Constant(Constant),
+}
+
+impl From<Constant> for Operand {
+    fn from(c: Constant) -> Self {
+        Operand::Constant(c)
+    }
+}
+
+impl From<ValueId> for Operand {
+    fn from(v: ValueId) -> Self {
+        Operand::Value(v)
+    }
 }
 
 /// Attributes describing data-flow facts known about the root of a left- or

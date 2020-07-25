@@ -6,7 +6,7 @@ edition = "2018"
 publish = false
 
 [dependencies]
-souper-ir = { path = "../..", features = ["parse"] }
+souper-ir = { path = "../..", features = ["parse", "stringify"] }
 
 [build-dependencies]
 anyhow = "1.0.31"
