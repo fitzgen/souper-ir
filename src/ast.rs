@@ -10,12 +10,33 @@ pub struct ValueId(
     pub(crate) Id<Statement>,
 );
 
+impl From<ValueId> for Id<Statement> {
+    #[inline]
+    fn from(id: ValueId) -> Self {
+        id.0
+    }
+}
+
 /// An identifier for a defined block.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(
     /// Always points to an assignment where the RHS is `AssignmentRhs::Block`.
     pub(crate) ValueId,
 );
+
+impl From<BlockId> for ValueId {
+    #[inline]
+    fn from(id: BlockId) -> Self {
+        id.0
+    }
+}
+
+impl From<BlockId> for Id<Statement> {
+    #[inline]
+    fn from(id: BlockId) -> Self {
+        (id.0).0
+    }
+}
 
 /// A complete optimization that replaces a left-hand side with a right-hand
 /// side.
@@ -44,6 +65,25 @@ pub enum Replacement {
         /// this replacement within `statements`.
         cand: Cand,
     },
+}
+
+impl Replacement {
+    /// Get the assignment that defined the given value.
+    ///
+    /// # Panics
+    ///
+    /// May panic or produce incorrect results if given a `ValueId` from another
+    /// `Replacement`, `LeftHandSide`, or `RightHandSide`'s arena.
+    pub fn assignment(&self, id: ValueId) -> &Assignment {
+        match self {
+            Replacement::LhsRhs { statements, .. } | Replacement::Cand { statements, .. } => {
+                match &statements[id.into()] {
+                    Statement::Assignment(a) => a,
+                    _ => panic!("use of an `id` that is not from this `Replacement`'s arena"),
+                }
+            }
+        }
+    }
 }
 
 /// A candidate rewrite.
@@ -243,6 +283,47 @@ macro_rules! define_instructions {
                 }
             }
         }
+
+        #[cfg(feature = "stringify")]
+        impl Instruction {
+            pub(crate) fn value_ids(&self, mut f: impl FnMut(ValueId)) {
+                match self {
+                    $(
+                        Instruction::$inst $( { $( $operand ),* } )? => {
+                            $(
+                                $(
+                                    if let Operand::Value(v) = $operand {
+                                        f(*v);
+                                    }
+                                )*
+                            )?
+                        }
+                    )*
+                }
+            }
+
+            pub(crate) fn operands(&self, mut f: impl FnMut(Operand)) {
+                match self {
+                    $(
+                        Instruction::$inst $( { $( $operand ),* } )? => {
+                            $(
+                                $(
+                                    f(*$operand);
+                                )*
+                            )?
+                        }
+                    )*
+                }
+            }
+
+            pub(crate) fn instruction_name(&self) -> &'static str {
+                match self {
+                    $(
+                        Instruction::$inst $( { $( $operand: _),* } )? => $token,
+                    )*
+                }
+            }
+        }
     };
 }
 
@@ -289,10 +370,12 @@ define_instructions! {
     /// Signed integer division.
     "sdiv" => Sdiv(a, b);
 
-    /// TODO
+    /// Unsigned division where `a` must be exactly divisible by `b`. If `a` is
+    /// not exactly divisible by `b`, then the result is undefined behavior.
     "udivexact" => UdivExact(a, b);
 
-    /// TODO
+    /// Signed division where `a` must be exactly divisible by `b`. If `a` is
+    /// not exactly divisible by `b`, then the result is undefined behavior.
     "sdivexact" => SdivExact(a, b);
 
     /// Unsigned integer remainder.
@@ -329,13 +412,15 @@ define_instructions! {
     /// behavior if `b` is greater than or equal to `bitwidth(a)`.
     "lshr" => Lshr(a, b);
 
-    /// TODO
+    /// Logical bit shift right (fills left `b` bits with zero) where it is
+    /// undefined behavior if any bits shifted out are non-zero.
     "lshrexact" => LshrExact(a, b);
 
     /// Arithmetic bit shift right (sign extends the left `b` bits).
     "ashr" => Ashr(a, b);
 
-    /// TODO
+    /// Arithmetic bit shift right (fills left `b` bits with zero) where it is
+    /// undefined behavior if any bits shifted out are non-zero.
     "ashrexact" => AshrExact(a, b);
 
     /// If `a` is 1, then evaluates to `b`, otherwise evaluates to `c`.

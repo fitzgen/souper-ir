@@ -20,9 +20,10 @@
 //!
 //! ## Emitting Souper IR's Text Format
 //!
-//! When the `stringify` Cargo feature is enabled, the `souper_ir::stringify`
-//! module contains functions for taking an in-memory Souper IR AST and
-//! translating it into Souper IR's text format.
+//! When the `stringify` Cargo feature is enabled, then the
+//! `souper_ir::ast::Replacement`, `souper_ir::ast::LeftHandSide`, and
+//! `souper_ir::ast::RightHandSide` types all implement `std::fmt::Display`. The
+//! `Display` implementation writes the AST type out as Souper's text format.
 //!
 //! [Souper]: https://github.com/google/souper
 
@@ -33,5 +34,6 @@ pub mod ast;
 
 #[cfg(feature = "parse")]
 pub mod parse;
+
 #[cfg(feature = "stringify")]
-pub mod stringify;
+mod stringify;

@@ -39,10 +39,18 @@
 //! # }
 //! ```
 
+use crate::ast;
 use id_arena::Arena;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::mem;
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    convert::TryInto,
+    iter::Peekable,
+    mem,
+    path::{Path, PathBuf},
+    str::CharIndices,
+    str::FromStr,
+};
 
 /*
 
@@ -178,15 +186,6 @@ https://github.com/google/souper/issues/782.
 ```
 
 */
-
-use crate::ast;
-use std::{
-    borrow::Cow,
-    iter::Peekable,
-    path::{Path, PathBuf},
-    str::CharIndices,
-    str::FromStr,
-};
 
 /// An error that occurs during parsing.
 pub struct ParseError {
@@ -917,6 +916,10 @@ impl Peek for ast::Assignment {
 impl Parse for ast::Assignment {
     fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self> {
         let name = parser.val_name()?.to_string();
+        if parser.values.contains_key(&name) {
+            return parser.error(format!("cannot redefine '{}'", name));
+        }
+
         let r#type = if parser.lookahead()? == Some(Token::Colon) {
             parser.colon()?;
             Some(ast::Type::parse(parser)?)
