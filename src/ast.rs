@@ -1,6 +1,6 @@
 //! Abstract syntax tree type definitions.
 
-use id_arena::{Arena, Id};
+pub use id_arena::{Arena, Id};
 
 /// An identifier for a value defined by an assignment.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -86,6 +86,112 @@ impl Replacement {
     }
 }
 
+/// A builder for a [`Replacement`][crate::ast::Replacement].
+#[derive(Clone, Debug, Default)]
+pub struct ReplacementBuilder {
+    statements: Arena<Statement>,
+}
+
+impl ReplacementBuilder {
+    /// Create a new assignment statement.
+    ///
+    /// Returns the value defined by the assignment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn assignment(
+        &mut self,
+        name: Option<String>,
+        r#type: Option<Type>,
+        value: impl Into<AssignmentRhs>,
+        attributes: Vec<Attribute>,
+    ) -> ValueId {
+        let name = name.unwrap_or_else(|| format!("%{}", self.statements.len()));
+        assert!(name.starts_with('%'));
+        ValueId(
+            self.statements.alloc(
+                Assignment {
+                    name,
+                    r#type,
+                    value: value.into(),
+                    attributes,
+                }
+                .into(),
+            ),
+        )
+    }
+
+    /// Create a new [basic block][crate::ast::Block].
+    ///
+    /// Declare that the block has `predecessors` number of incoming edges in
+    /// the control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn block(&mut self, name: Option<String>, predecessors: u32) -> BlockId {
+        BlockId(self.assignment(name, None, Block { predecessors }, vec![]))
+    }
+
+    /// Create a [path condition][crate::ast::Pc].
+    ///
+    /// Expresses the fact that `x` must equal `y` for the replacement to be
+    /// valid.
+    pub fn pc(&mut self, x: impl Into<Operand>, y: impl Into<Operand>) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(Pc { x, y }.into());
+    }
+
+    /// Create a [block path condition][crate::ast::BlockPc].
+    ///
+    /// Expresses that `x` is equal to `y` on an incoming edge to `block` in the
+    /// control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `predecessor` is greater than or equal to `block`'s number of
+    /// predecessors.
+    pub fn block_pc(
+        &mut self,
+        block: BlockId,
+        predecessor: u32,
+        x: impl Into<Operand>,
+        y: impl Into<Operand>,
+    ) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(
+            BlockPc {
+                block,
+                predecessor,
+                x,
+                y,
+            }
+            .into(),
+        );
+    }
+
+    /// Finish building this replacement by providing the left- and right-hand
+    /// sides.
+    pub fn finish(
+        self,
+        lhs: ValueId,
+        rhs: impl Into<Operand>,
+        attributes: impl IntoIterator<Item = RootAttribute>,
+    ) -> Replacement {
+        Replacement::LhsRhs {
+            statements: self.statements,
+            lhs: Infer {
+                value: lhs,
+                attributes: attributes.into_iter().collect(),
+            },
+            rhs: rhs.into(),
+        }
+    }
+}
+
 /// A candidate rewrite.
 #[derive(Clone, Debug)]
 pub struct Cand {
@@ -108,6 +214,109 @@ pub struct LeftHandSide {
 
     /// The root of this LHS's expression DAG.
     pub infer: Infer,
+}
+
+/// A builder for a [`LeftHandSide`][crate::ast::LeftHandSide].
+#[derive(Clone, Debug, Default)]
+pub struct LeftHandSideBuilder {
+    statements: Arena<Statement>,
+}
+
+impl LeftHandSideBuilder {
+    /// Create a new assignment statement.
+    ///
+    /// Returns the value defined by the assignment.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn assignment(
+        &mut self,
+        name: Option<String>,
+        r#type: Option<Type>,
+        value: impl Into<AssignmentRhs>,
+        attributes: Vec<Attribute>,
+    ) -> ValueId {
+        let name = name.unwrap_or_else(|| format!("%{}", self.statements.len()));
+        assert!(name.starts_with('%'));
+        ValueId(
+            self.statements.alloc(
+                Assignment {
+                    name,
+                    r#type,
+                    value: value.into(),
+                    attributes,
+                }
+                .into(),
+            ),
+        )
+    }
+
+    /// Create a new [basic block][crate::ast::Block].
+    ///
+    /// Declare that the block has `predecessors` number of incoming edges in
+    /// the control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` (when given) does not start with '%'.
+    pub fn block(&mut self, name: Option<String>, predecessors: u32) -> BlockId {
+        BlockId(self.assignment(name, None, Block { predecessors }, vec![]))
+    }
+
+    /// Create a [path condition][crate::ast::Pc].
+    ///
+    /// Expresses the fact that `x` must equal `y` for the replacement to be
+    /// valid.
+    pub fn pc(&mut self, x: impl Into<Operand>, y: impl Into<Operand>) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(Pc { x, y }.into());
+    }
+
+    /// Create a [block path condition][crate::ast::BlockPc].
+    ///
+    /// Expresses that `x` is equal to `y` on an incoming edge to `block` in the
+    /// control-flow graph.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `predecessor` is greater than or equal to `block`'s number of
+    /// predecessors.
+    pub fn block_pc(
+        &mut self,
+        block: BlockId,
+        predecessor: u32,
+        x: impl Into<Operand>,
+        y: impl Into<Operand>,
+    ) {
+        let x = x.into();
+        let y = y.into();
+        self.statements.alloc(
+            BlockPc {
+                block,
+                predecessor,
+                x,
+                y,
+            }
+            .into(),
+        );
+    }
+
+    /// Finish building this `LeftHandSide`.
+    pub fn finish(
+        self,
+        lhs: ValueId,
+        attributes: impl IntoIterator<Item = RootAttribute>,
+    ) -> LeftHandSide {
+        LeftHandSide {
+            statements: self.statements,
+            infer: Infer {
+                value: lhs,
+                attributes: attributes.into_iter().collect(),
+            },
+        }
+    }
 }
 
 /// The root of a left-hand side.
@@ -141,6 +350,24 @@ pub enum Statement {
 
     /// A block path condition statement.
     BlockPc(BlockPc),
+}
+
+impl From<Assignment> for Statement {
+    fn from(a: Assignment) -> Self {
+        Statement::Assignment(a)
+    }
+}
+
+impl From<Pc> for Statement {
+    fn from(pc: Pc) -> Self {
+        Statement::Pc(pc)
+    }
+}
+
+impl From<BlockPc> for Statement {
+    fn from(bpc: BlockPc) -> Self {
+        Statement::BlockPc(bpc)
+    }
 }
 
 /// An assignment, defining a value.
@@ -182,6 +409,30 @@ pub enum AssignmentRhs {
 
     /// An instruction and its operands.
     Instruction(Instruction),
+}
+
+impl From<Constant> for AssignmentRhs {
+    fn from(c: Constant) -> Self {
+        AssignmentRhs::Constant(c)
+    }
+}
+
+impl From<Block> for AssignmentRhs {
+    fn from(b: Block) -> Self {
+        AssignmentRhs::Block(b)
+    }
+}
+
+impl From<Phi> for AssignmentRhs {
+    fn from(p: Phi) -> Self {
+        AssignmentRhs::Phi(p)
+    }
+}
+
+impl From<Instruction> for AssignmentRhs {
+    fn from(i: Instruction) -> Self {
+        AssignmentRhs::Instruction(i)
+    }
 }
 
 /// An input variable.
@@ -531,6 +782,18 @@ pub enum Operand {
 
     /// A literal constant value.
     Constant(Constant),
+}
+
+impl From<Constant> for Operand {
+    fn from(c: Constant) -> Self {
+        Operand::Constant(c)
+    }
+}
+
+impl From<ValueId> for Operand {
+    fn from(v: ValueId) -> Self {
+        Operand::Value(v)
+    }
 }
 
 /// Attributes describing data-flow facts known about the root of a left- or

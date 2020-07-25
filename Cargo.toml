@@ -23,3 +23,6 @@ members = [
     "./crates/tests",
     "./fuzz",
 ]
+
+[package.metadata.docs.rs]
+all-features = true
