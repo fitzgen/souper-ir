@@ -59,7 +59,6 @@ fn topo_sort_statements(
                 stack.push(Entry::Trace((*block).into()));
             }
             ast::Statement::Assignment(ast::Assignment { value, .. }) => match value {
-                ast::AssignmentRhs::Constant(_)
                 | ast::AssignmentRhs::Var
                 | ast::AssignmentRhs::Block(_)
                 | ast::AssignmentRhs::ReservedInst
@@ -219,7 +218,6 @@ impl DisplayWithContext for ast::Assignment {
 impl DisplayWithContext for ast::AssignmentRhs {
     fn display(&self, statements: &Arena<ast::Statement>, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ast::AssignmentRhs::Constant(c) => write!(f, "{}", c),
             ast::AssignmentRhs::Var => write!(f, "var"),
             ast::AssignmentRhs::Block(block) => <ast::Block as Display>::fmt(block, f),
             ast::AssignmentRhs::Phi(phi) => phi.display(statements, f),

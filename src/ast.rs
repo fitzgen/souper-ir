@@ -389,9 +389,6 @@ pub struct Assignment {
 /// Any value that can be assigned to a name.
 #[derive(Clone, Debug)]
 pub enum AssignmentRhs {
-    /// A constant value.
-    Constant(Constant),
-
     /// An input variable.
     Var,
 
@@ -409,12 +406,6 @@ pub enum AssignmentRhs {
 
     /// An instruction and its operands.
     Instruction(Instruction),
-}
-
-impl From<Constant> for AssignmentRhs {
-    fn from(c: Constant) -> Self {
-        AssignmentRhs::Constant(c)
-    }
 }
 
 impl From<Block> for AssignmentRhs {

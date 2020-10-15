@@ -82,8 +82,7 @@ https://github.com/google/souper/issues/782.
 
 <assignment-lhs> ::= <valname> (':' <type>)?
 
-<assignment-rhs> ::= <constant>
-                   | 'var' <attribute>*
+<assignment-rhs> ::= 'var' <attribute>*
                    | 'block' <int>
                    | 'phi' <valname> (',' <operand>)*
                    | 'reservedinst' <attribute>*
@@ -939,11 +938,6 @@ impl Parse for ast::Assignment {
 
 impl Parse for ast::AssignmentRhs {
     fn parse<'a>(parser: &mut Parser<'a>) -> Result<Self> {
-        if ast::Constant::peek(parser)? {
-            let constant = ast::Constant::parse(parser)?;
-            return Ok(ast::AssignmentRhs::Constant(constant));
-        }
-
         if parser.lookahead_ident("var")? {
             parser.ident("var")?;
             return Ok(ast::AssignmentRhs::Var);
