@@ -58,8 +58,7 @@ Here is the grammar, as far as I can tell. See
 https://github.com/google/souper/issues/782.
 
 ```
-<replacement> ::= <lhs>
-                | <rhs>
+<replacement> ::= <lhs> <rhs>
                 | <full>
 
 <lhs> ::= <statement>* <infer>
