@@ -317,6 +317,19 @@ impl LeftHandSideBuilder {
             },
         }
     }
+
+    /// Get the assignment that created the given value.
+    ///
+    /// # Panics
+    ///
+    /// May panic when given a `ValudId` from a different LHS, RHS, or
+    /// replacement.
+    pub fn get_value(&self, id: ValueId) -> &Assignment {
+        match &self.statements[id.into()] {
+            Statement::Assignment(a) => a,
+            _ => panic!(),
+        }
+    }
 }
 
 /// The root of a left-hand side.
